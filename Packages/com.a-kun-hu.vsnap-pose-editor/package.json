@@ -1,0 +1,13 @@
+{
+  "name": "com.a-kun-hu.vsnap-pose-editor",
+  "displayName": "VSnap Pose Editor",
+  "version": "0.0.5",
+  "unity": "2022.3",
+  "description": "Pose Editor for VSnap",
+  "vrchatVersion": "2022.1.1",
+  "author": {
+    "name": "A-kun-HU",
+    "email": "e.fukuda256@gmail.com",
+    "url": "https://a-kun-xr.com"
+  }
+}
