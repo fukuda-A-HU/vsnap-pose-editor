@@ -15,20 +15,12 @@ namespace VSnap.Editor
         private List<string> _createdPoses = new List<string>();
         private bool _showResults;
         
-        // サムネイル生成用
+        // Thumbnail generation
         private bool _generateThumbnails;
         private Camera _thumbnailCamera;
         private GameObject _character;
         private int _thumbnailWidth = 512;
         private int _thumbnailHeight = 512;
-
-        [MenuItem("VSnap/Create Poses Folder")]
-        public static void ShowWindow()
-        {
-            var window = GetWindow<PoseCreatorEditorWindow>("Pose Creator");
-            window.minSize = new Vector2(400, 300);
-            window.Show();
-        }
 
         private void OnGUI()
         {
@@ -36,12 +28,12 @@ namespace VSnap.Editor
             EditorGUILayout.Space();
 
             EditorGUILayout.HelpBox(
-                "指定したフォルダ内のAnimationClipを再帰的に検索し、Poseアセットを作成します。",
+                "Recursively searches AnimationClips in the selected folder and creates Pose assets.",
                 MessageType.Info
             );
             EditorGUILayout.Space();
 
-            // フォルダ選択
+            // Folder selection
             EditorGUI.BeginChangeCheck();
             _targetFolder = (DefaultAsset)EditorGUILayout.ObjectField(
                 "Target Folder",
@@ -55,20 +47,20 @@ namespace VSnap.Editor
                 UpdateOutputFolderPath();
             }
 
-            // 出力先フォルダの表示
+            // Output folder preview
             if (!string.IsNullOrEmpty(_outputFolderPath))
             {
-                EditorGUILayout.HelpBox($"出力先: {_outputFolderPath}", MessageType.None);
+                EditorGUILayout.HelpBox($"Output: {_outputFolderPath}", MessageType.None);
             }
 
             EditorGUILayout.Space();
 
-            // オプション
+            // Options
             _overwriteExisting = EditorGUILayout.Toggle("Overwrite Existing Poses", _overwriteExisting);
             
             EditorGUILayout.Space();
             
-            // サムネイル生成設定
+            // Thumbnail settings
             _generateThumbnails = EditorGUILayout.Toggle("Generate Thumbnails", _generateThumbnails);
             
             if (_generateThumbnails)
@@ -90,7 +82,7 @@ namespace VSnap.Editor
                 if (_thumbnailCamera == null || _character == null)
                 {
                     EditorGUILayout.HelpBox(
-                        "サムネイルを生成するにはカメラとキャラクターを指定してください。",
+                        "Specify a Camera and Character to generate thumbnails.",
                         MessageType.Warning
                     );
                 }
@@ -100,7 +92,7 @@ namespace VSnap.Editor
             EditorGUILayout.Space();
             EditorGUILayout.Space();
 
-            // 実行ボタン
+            // Execute
             bool canExecute = _targetFolder != null && 
                              (!_generateThumbnails || (_thumbnailCamera != null && _character != null));
             GUI.enabled = canExecute;
@@ -110,7 +102,7 @@ namespace VSnap.Editor
             }
             GUI.enabled = true;
 
-            // 結果表示
+            // Results
             if (_showResults && _createdPoses.Count > 0)
             {
                 EditorGUILayout.Space();
@@ -129,7 +121,7 @@ namespace VSnap.Editor
         {
             if (_targetFolder == null)
             {
-                EditorUtility.DisplayDialog("Error", "フォルダを選択してください。", "OK");
+                EditorUtility.DisplayDialog("Error", "Please select a folder.", "OK");
                 return;
             }
 
@@ -137,29 +129,29 @@ namespace VSnap.Editor
             
             if (!AssetDatabase.IsValidFolder(folderPath))
             {
-                EditorUtility.DisplayDialog("Error", "有効なフォルダを選択してください。", "OK");
+                EditorUtility.DisplayDialog("Error", "Please select a valid folder.", "OK");
                 return;
             }
 
             _createdPoses.Clear();
             _showResults = false;
 
-            // 出力先フォルダを生成
+            // Generate output folder
             string outputFolderPath = GenerateOutputFolderPath(folderPath);
             if (string.IsNullOrEmpty(outputFolderPath))
             {
-                EditorUtility.DisplayDialog("Error", "出力先フォルダの生成に失敗しました。", "OK");
+                EditorUtility.DisplayDialog("Error", "Failed to generate output folder.", "OK");
                 return;
             }
 
             try
             {
-                // 指定フォルダ配下のAnimationClipを再帰的に検索
+                // Recursively find AnimationClips in folder
                 string[] guids = AssetDatabase.FindAssets("t:AnimationClip", new[] { folderPath });
                 
                 if (guids.Length == 0)
                 {
-                    EditorUtility.DisplayDialog("Info", "AnimationClipが見つかりませんでした。", "OK");
+                    EditorUtility.DisplayDialog("Info", "No AnimationClips found.", "OK");
                     return;
                 }
 
@@ -183,11 +175,11 @@ namespace VSnap.Editor
                         progress
                     );
 
-                    // 相対パスを計算して出力先のパスを生成
+                    // Compute relative path and output path
                     string relativePath = GetRelativePath(folderPath, clipPath);
                     string outputDirectory = Path.Combine(outputFolderPath, Path.GetDirectoryName(relativePath) ?? "").Replace("\\", "/");
                     
-                    // 出力先ディレクトリが存在しない場合は作成
+                    // Create output directory if needed
                     if (!AssetDatabase.IsValidFolder(outputDirectory))
                     {
                         CreateFolderRecursively(outputDirectory);
@@ -196,36 +188,36 @@ namespace VSnap.Editor
                     string poseAssetName = $"{clip.name}_Pose.asset";
                     string poseAssetPath = Path.Combine(outputDirectory, poseAssetName).Replace("\\", "/");
 
-                    // 既存チェック
+                    // Skip if existing and not overwriting
                     if (!_overwriteExisting && AssetDatabase.LoadAssetAtPath<PoseData>(poseAssetPath) != null)
                     {
                         skippedCount++;
                         continue;
                     }
 
-                    // Poseアセットを作成
+                    // Create Pose asset
                     PoseData pose = ScriptableObject.CreateInstance<PoseData>();
                     pose.poseName = clip.name;
                     pose.animation = clip;
                     pose.snsTag = string.Empty;
                     
-                    // サムネイル生成
+                    // Thumbnail
                     Texture2D thumbnailTexture = null;
                     if (_generateThumbnails && _thumbnailCamera != null && _character != null)
                     {
                         string thumbnailPath = Path.ChangeExtension(poseAssetPath, ".png");
                         GenerateThumbnail(clip, thumbnailPath);
                         
-                        // サムネイルをインポートして読み込み
+                        // Import and load thumbnail
                         AssetDatabase.ImportAsset(thumbnailPath);
                         thumbnailTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(thumbnailPath);
                         pose.thumbnail = thumbnailTexture;
                     }
 
-                    // アセットとして保存
+                    // Save as asset
                     if (_overwriteExisting && AssetDatabase.LoadAssetAtPath<PoseData>(poseAssetPath) != null)
                     {
-                        // 既存のアセットを上書き
+                        // Overwrite existing asset
                         PoseData existingPose = AssetDatabase.LoadAssetAtPath<PoseData>(poseAssetPath);
                         EditorUtility.CopySerialized(pose, existingPose);
                         EditorUtility.SetDirty(existingPose);
@@ -233,7 +225,7 @@ namespace VSnap.Editor
                     }
                     else
                     {
-                        // 新規作成
+                        // Create new
                         AssetDatabase.CreateAsset(pose, poseAssetPath);
                     }
 
@@ -243,17 +235,17 @@ namespace VSnap.Editor
 
                 EditorUtility.ClearProgressBar();
 
-                // アセットデータベースを更新
+                // Refresh AssetDatabase
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
 
                 _showResults = true;
 
-                // 結果表示
-                string message = $"完了しました。\n\n作成: {createdCount}件";
+                // Result message
+                string message = $"Done.\n\nCreated: {createdCount}";
                 if (skippedCount > 0)
                 {
-                    message += $"\nスキップ: {skippedCount}件";
+                    message += $"\nSkipped: {skippedCount}";
                 }
 
                 EditorUtility.DisplayDialog("Success", message, "OK");
@@ -264,7 +256,7 @@ namespace VSnap.Editor
             catch (System.Exception ex)
             {
                 EditorUtility.ClearProgressBar();
-                EditorUtility.DisplayDialog("Error", $"エラーが発生しました:\n{ex.Message}", "OK");
+                EditorUtility.DisplayDialog("Error", $"An error occurred:\n{ex.Message}", "OK");
                 Debug.LogError($"[PoseCreator] Error: {ex}");
             }
         }
@@ -290,13 +282,13 @@ namespace VSnap.Editor
 
         private string GenerateOutputFolderPath(string sourceFolderPath)
         {
-            // 元のフォルダ名に "_Poses" を付けて出力先フォルダ名を生成
+            // Output folder name: source folder name + "_Poses"
             string folderName = Path.GetFileName(sourceFolderPath.TrimEnd('/'));
             string parentPath = Path.GetDirectoryName(sourceFolderPath)?.Replace("\\", "/") ?? "Assets";
             
             string outputFolderPath = Path.Combine(parentPath, $"{folderName}_Poses").Replace("\\", "/");
             
-            // 出力先フォルダが存在しない場合は作成
+            // Create output folder if it does not exist
             if (!AssetDatabase.IsValidFolder(outputFolderPath))
             {
                 CreateFolderRecursively(outputFolderPath);
@@ -342,53 +334,53 @@ namespace VSnap.Editor
         {
             try
             {
-                // シーンのキャラクターを直接使用
+                // Use scene character
                 GameObject tempCharacter = _character;
                 
-                // Animatorコンポーネントを取得または追加
+                // Get or add Animator
                 Animator animator = tempCharacter.GetComponent<Animator>();
                 if (animator == null)
                 {
                     animator = tempCharacter.AddComponent<Animator>();
                 }
                 
-                // アニメーションを適用（最初のフレーム）
+                // Sample animation at first frame
                 clip.SampleAnimation(tempCharacter, 0f);
                 
-                // カメラの位置・回転を保存
+                // Save camera transform
                 Vector3 originalCameraPosition = _thumbnailCamera.transform.position;
                 Quaternion originalCameraRotation = _thumbnailCamera.transform.rotation;
                 
-                // Hipsボーンを取得
+                // Get Hips bone
                 Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
                 if (hips != null)
                 {
-                    // Hipsの位置を取得
+                    // Hips position
                     Vector3 hipsPosition = hips.position;
                     
-                    // カメラをHipsの正面に配置（Z方向に2m離れた位置）
+                    // Place camera in front of Hips (2m along Z)
                     Vector3 cameraPosition = hipsPosition + new Vector3(0, 0, 2f);
                     _thumbnailCamera.transform.position = cameraPosition;
                     
-                    // カメラをHipsの方向に向ける（Y軸は維持）
+                    // Look at Hips (keep Y)
                     _thumbnailCamera.transform.LookAt(new Vector3(hipsPosition.x, _thumbnailCamera.transform.position.y, hipsPosition.z));
                 }
                 
-                // RenderTextureを作成
+                // Create RenderTexture
                 RenderTexture renderTexture = new RenderTexture(_thumbnailWidth, _thumbnailHeight, 24);
                 RenderTexture previousRT = _thumbnailCamera.targetTexture;
                 _thumbnailCamera.targetTexture = renderTexture;
                 
-                // カメラでレンダリング
+                // Render with camera
                 _thumbnailCamera.Render();
                 
-                // Texture2Dに変換
+                // Convert to Texture2D
                 RenderTexture.active = renderTexture;
                 Texture2D thumbnail = new Texture2D(_thumbnailWidth, _thumbnailHeight, TextureFormat.RGB24, false);
                 thumbnail.ReadPixels(new Rect(0, 0, _thumbnailWidth, _thumbnailHeight), 0, 0);
                 thumbnail.Apply();
                 
-                // PNGとして保存
+                // Save as PNG
                 byte[] bytes = thumbnail.EncodeToPNG();
                 string directoryPath = Path.GetDirectoryName(thumbnailPath);
                 if (!string.IsNullOrEmpty(directoryPath) && !Directory.Exists(directoryPath))
@@ -397,13 +389,13 @@ namespace VSnap.Editor
                 }
                 File.WriteAllBytes(thumbnailPath, bytes);
                 
-                // クリーンアップ
+                // Cleanup
                 RenderTexture.active = null;
                 _thumbnailCamera.targetTexture = previousRT;
                 DestroyImmediate(renderTexture);
                 DestroyImmediate(thumbnail);
                 
-                // カメラの位置・回転を復元
+                // Restore camera transform
                 _thumbnailCamera.transform.position = originalCameraPosition;
                 _thumbnailCamera.transform.rotation = originalCameraRotation;
             }

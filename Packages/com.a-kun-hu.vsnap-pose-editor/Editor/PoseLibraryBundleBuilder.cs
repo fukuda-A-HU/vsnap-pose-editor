@@ -5,11 +5,9 @@ using VSnap.Shared.Domain;
 
 
 /// <summary>
-/// PoseLibraryのAssetBundleをビルドするエディタウィンドウ
-/// poseLibralyの名前を小文字化したものをアセットバンドル名とする。
-/// 例: libraryNameが"MyPoses"なら、アセットバンドル名は"myposes.bundle"
-/// ビルド対象プラットフォームはAndroidとiOS。
-/// ビルド後、出力フォルダを開く。
+/// Editor window that builds AssetBundles from a PoseLibrary.
+/// The asset bundle name is the lowercased libraryName (e.g. "MyPoses" -> "myposes.bundle").
+/// Build targets: Android and iOS. Opens the output folder after build.
 /// </summary>
 namespace VSnap.Editor
 {
@@ -18,19 +16,12 @@ namespace VSnap.Editor
         private PoseLibrary poseLibrary;
         private string outputPath = "AssetBundles";
         
-        [MenuItem("VSnap/Build PoseLibrary")]
-        public static void ShowWindow()
-        {
-            var window = GetWindow<PoseLibraryBundleBuilder>("PoseLibrary Bundle Builder");
-            window.Show();
-        }
-        
         private void OnGUI()
         {
             GUILayout.Label("PoseLibrary AssetBundle Builder", EditorStyles.boldLabel);
             EditorGUILayout.Space();
             
-            // PoseLibraryの選択
+            // PoseLibrary selection
             poseLibrary = (PoseLibrary)EditorGUILayout.ObjectField(
                 "PoseLibrary", 
                 poseLibrary, 
@@ -40,7 +31,7 @@ namespace VSnap.Editor
             
             EditorGUILayout.Space();
             
-            // 出力パスの設定
+            // Output path
             EditorGUILayout.BeginHorizontal();
             outputPath = EditorGUILayout.TextField("Output Path", outputPath);
             if (GUILayout.Button("Browse", GUILayout.Width(80)))
@@ -60,7 +51,7 @@ namespace VSnap.Editor
             EditorGUILayout.Space();
             EditorGUILayout.Space();
             
-            // ビルドボタン
+            // Build button
             GUI.enabled = poseLibrary != null;
             if (GUILayout.Button("Build AssetBundles (Android & iOS)", GUILayout.Height(40)))
             {
@@ -70,7 +61,7 @@ namespace VSnap.Editor
             
             EditorGUILayout.Space();
             
-            // 情報表示
+            // Info
             if (poseLibrary != null)
             {
                 EditorGUILayout.HelpBox(
@@ -100,13 +91,13 @@ namespace VSnap.Editor
                 return;
             }
             
-            // 出力ディレクトリの作成
+            // Create output directory
             if (!Directory.Exists(outputPath))
             {
                 Directory.CreateDirectory(outputPath);
             }
             
-            // アセットのパスを取得
+            // Get asset path
             string assetPath = AssetDatabase.GetAssetPath(poseLibrary);
             
             if (string.IsNullOrEmpty(assetPath))
@@ -119,12 +110,12 @@ namespace VSnap.Editor
                 return;
             }
             
-            // 元のアセット名を保存
+            // Save original asset name
             string originalAssetName = poseLibrary.name;
             string libraryNameLower = poseLibrary.libraryName.ToLower();
             string targetAssetName = libraryNameLower;
             
-            // アセット名を一時的にlibraryNameに変更
+            // Temporarily rename asset to libraryName
             if (originalAssetName != targetAssetName)
             {
                 string assetDirectory = Path.GetDirectoryName(assetPath);
@@ -134,12 +125,12 @@ namespace VSnap.Editor
                 assetPath = newAssetPath;
             }
             
-            // AssetBundleの名前を設定
+            // Set AssetBundle name
             AssetImporter importer = AssetImporter.GetAtPath(assetPath);
             string bundleName = $"{libraryNameLower}.bundle";
             importer.assetBundleName = bundleName;
             
-            // 依存する全てのアセットを収集
+            // Collect all dependencies
             string[] dependencies = AssetDatabase.GetDependencies(assetPath, true);
             foreach (string dep in dependencies)
             {
@@ -150,7 +141,7 @@ namespace VSnap.Editor
                 }
             }
             
-            // Android と iOS 用のビルドターゲット
+            // Build targets: Android and iOS
             BuildTarget[] buildTargets = new BuildTarget[]
             {
                 BuildTarget.Android,
@@ -161,12 +152,12 @@ namespace VSnap.Editor
             System.Text.StringBuilder resultMessage = new System.Text.StringBuilder();
             resultMessage.AppendLine("AssetBundle build completed!\n");
             
-            // 各プラットフォーム用にビルド
+            // Build per platform
             foreach (BuildTarget target in buildTargets)
             {
                 string platformPath = Path.Combine(outputPath, libraryNameLower, target.ToString());
                 
-                // プラットフォーム用のディレクトリを作成
+                // Create platform directory
                 if (!Directory.Exists(platformPath))
                 {
                     Directory.CreateDirectory(platformPath);
@@ -200,7 +191,7 @@ namespace VSnap.Editor
             
             EditorUtility.ClearProgressBar();
             
-            // ビルド後、AssetBundle名をクリア
+            // Clear AssetBundle names after build
             importer.assetBundleName = "";
             foreach (string dep in dependencies)
             {
@@ -211,7 +202,7 @@ namespace VSnap.Editor
                 }
             }
             
-            // アセット名を元に戻す
+            // Restore asset name
             if (originalAssetName != targetAssetName)
             {
                 AssetDatabase.RenameAsset(assetPath, originalAssetName);
@@ -220,7 +211,7 @@ namespace VSnap.Editor
             
             AssetDatabase.Refresh();
             
-            // 結果を表示
+            // Show result
             if (allSuccess)
             {
                 EditorUtility.DisplayDialog(
@@ -238,7 +229,7 @@ namespace VSnap.Editor
                 );
             }
             
-            // 出力フォルダを開く
+            // Open output folder
             EditorUtility.RevealInFinder(outputPath);
         }
     }

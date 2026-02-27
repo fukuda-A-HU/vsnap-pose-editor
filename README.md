@@ -1,76 +1,97 @@
-# VPM Package Template
+VSnap Pose Editor
+=================
 
-Starter for making Packages, including automation for building and publishing them.
+VSnap 用のポーズデータ（`Pose` / `PoseGroup` / `PoseLibrary`）を Unity Editor 上でまとめて作成し、AssetBundle 出力するためのツールです。
 
-Once you're all set up, you'll be able to push changes to this repository and have .zip and .unitypackage versions automatically generated, and a listing made which works in the VPM for delivering updates for this package. If you want to make a listing with a variety of packages, check out our [template-package-listing](https://github.com/vrchat-community/template-package-listing) repo.
+---
 
-## ▶ Getting Started
+## 機能概要
 
-* Press [![Use This Template](https://user-images.githubusercontent.com/737888/185467681-e5fdb099-d99f-454b-8d9e-0760e5a6e588.png)](https://github.com/vrchat-community/template-package/generate)
-to start a new GitHub project based on this template.
-  * Choose a fitting repository name and description.
-  * Set the visibility to 'Public'. You can also choose 'Private' and change it later.
-  * You don't need to select 'Include all branches.'
-* Clone this repository locally using Git.
-  * If you're unfamiliar with Git and GitHub, [visit GitHub's documentation](https://docs.github.com/en/get-started/quickstart/git-and-github-learning-resources) to learn more.
-* Add the folder to Unity Hub and open it as a Unity Project.
-* After opening the project, wait while the VPM resolver is downloaded and added to your project.
-  * This gives you access to the VPM Package Maker and Package Resolver tools.
+**一つのウィンドウで操作**  
+メニュー **`VSnap/Pose Editor`** で統合ウィンドウを開き、タブで「Create Poses」「Register Pose Group」「Build PoseLibrary」を切り替えて使います。
 
-## 🚇 Migrating Assets Package
-Full details at [Converting Assets to a VPM Package](https://vcc.docs.vrchat.com/guides/convert-unitypackage)
+- **Pose 作成（Create Poses タブ）**
+  - 指定フォルダ内の `AnimationClip` から `Pose` アセットを一括生成します。
+  - 必要に応じて、キャラクターとカメラからサムネイル画像を自動撮影して `Pose` に設定できます。
 
-## ✏️ Working on Your Package
+- **PoseGroup 編集（Register Pose Group タブ）**
+  - 指定フォルダ内の `Pose` アセットを検索し、既存または新規の `PoseGroup` にまとめて登録します。
 
-* Delete the "Packages/com.vrchat.demo-template" directory or reuse it for your own package.
-  * If you reuse the package, don't forget to rename it and add generated meta files to your repository!
-* Update the `.gitignore` file in the "Packages" directory to include your package.
-  * For example, change `!com.vrchat.demo-template` to `!com.username.package-name`.
-  * `.gitignore` files normally *exclude* the contents of your "Packages" directory. This `.gitignore` in this template show how to *include* the demo package. You can easily change this out for your own package name.
-* Open the Unity project and work on your package's files in your favorite code editor.
-* When you're ready, commit and push your changes.
-* Once you've set up the automation as described below, you can easily publish new versions.
+- **PoseLibrary ビルド（Build PoseLibrary タブ）**
+  - `PoseLibrary` アセットから、Android / iOS 向けの AssetBundle をビルドします。
+  - `PoseLibrary.libraryName` を小文字化したものをベースに `{libraryName}.bundle` という名前で出力します。
 
-## 🤖 Setting up the Automation
+---
 
-Create a repository variable with the name and value described below.
-For details on how to create repository variables, see [Creating Configuration Variables for a Repository](https://docs.github.com/en/actions/learn-github-actions/variables#creating-configuration-variables-for-a-repository).
-Make sure you are creating a **repository variable**, and not a **repository secret**.
+## 1. Pose アセットの一括作成（Create Poses Folder）
 
-* `PACKAGE_NAME`: the name of your package, like `com.vrchat.demo-template`.
+1. **アニメーションを準備**
+   - `Assets` 以下に、ポーズにしたい `AnimationClip` をフォルダ構成ごと配置します。
+2. **ウィンドウを開く**
+   - メニューから `VSnap/Create Poses Folder` を選択します。
+3. **Target Folder を指定**
+   - `Target Folder` に、`AnimationClip` が入っているフォルダを指定します（サブフォルダも再帰的に検索されます）。
+4. **オプションを設定**
+   - `Overwrite Existing Poses`  
+     - 有効: 既存の `Pose` アセットを上書きします。  
+     - 無効: 既に存在する `Pose` はスキップします。
+   - `Generate Thumbnails`  
+     - 有効にすると、以下を指定してサムネイルを自動生成します。
+       - `Camera`: サムネイル撮影に使うカメラ
+       - `Character`: ポーズを適用するキャラクター（`Animator` が付いているオブジェクト）
+5. **Create Poses を実行**
+   - `Create Poses` ボタンを押すと処理が始まります。
+   - 指定フォルダと同じ階層に `{フォルダ名}_Poses` というフォルダが作成され、その中に元のフォルダ構成を保ったまま `Pose` アセットが生成されます。
+6. **結果を確認**
+   - ウィンドウ下部に作成された `Pose` のパス一覧が表示されます。
 
-Finally, go to the "Settings" page for your repo, then choose "Pages", and look for the heading "Build and deployment". Change the "Source" dropdown from "Deploy from a branch" to "GitHub Actions".
+---
 
-That's it!
-Some other notes:
-* We highly recommend you keep the existing folder structure of this template.
-  * The root of the project should be a Unity project.
-  * Your packages should be in the "Packages" directory.
-  * If you deviate from this folder structure, you'll need to update the paths that assume your package is in the "Packages" directory on lines 24, 38, 41 and 57.
-* If you want to store and generate your web files in a folder other than "Website" in the root, you can change the `listPublicDirectory` item [here in build-listing.yml](.github/workflows/build-listing.yml#L17).
+## 2. PoseGroup の作成・編集（Register Pose Group）
 
-## 🎉 Publishing a Release
+1. **ウィンドウを開く**
+   - メニューから `VSnap/Pose Editor` を開き「Register Pose Group」タブを選択します。
+2. **Target Folder を指定**
+   - `Target Folder` に、`Pose` アセットが格納されているフォルダ（例: 手順 1 で生成した `{フォルダ名}_Poses`）を指定します。
+3. **（任意）既存 PoseGroup を指定**
+   - すでに作成済みの `PoseGroup` に追加したい場合は、`Target PoseGroup` にそのアセットを指定します。
+   - 新しく作りたい場合は空のままで構いません。
+4. **Pose の検索**
+   - `Search Pose Objects` ボタンを押すと、`Target Folder` 配下の `Pose` を検索し、一覧表示します。
+5. **Pose を PoseGroup に追加**
+   - 検索結果が表示された状態で、下部のボタンを押します。
+     - `Create New PoseGroup and Add Poses`  
+       - `Target PoseGroup` が未指定の場合に表示されます。  
+       - 保存先と名前を指定して新しい `PoseGroup` を作成し、検索結果の `Pose` をすべて追加します。
+     - `Add to PoseGroup`  
+       - `Target PoseGroup` が指定されている場合に表示されます。  
+       - 指定した `PoseGroup` に検索結果の `Pose` を追加します（重複はスキップ）。
 
-You can make a release by running the [Build Release](.github/workflows/release.yml) action. The version specified in your `package.json` file will be used to define the version of the release.
+---
 
-## 📃 Rebuilding the Listing
+## 3. PoseLibrary の作成と AssetBundle ビルド
 
-Whenever you make a change to a release - manually publishing it, or manually creating, editing or deleting a release, the [Build Repo Listing](.github/workflows/build-listing.yml) action will make a new index of all the releases available, and publish them as a website hosted fore free on [GitHub Pages](https://pages.github.com/). This listing can be used by the VPM to keep your package up to date, and the generated index page can serve as a simple landing page with info for your package. The URL for your package will be in the format `https://username.github.io/repo-name`.
+### 3-1. PoseLibrary アセットの作成
 
-## 🏠 Customizing the Landing Page (Optional)
+1. **PoseLibrary を作成**
+   - `Project` ビューで右クリック → `Create/VSnap/PoseLibrary` を選択し、新しい `PoseLibrary` アセットを作成します。
+2. **PoseGroup を登録**
+   - `PoseLibrary` を選択し、インスペクターの `poseGroups` リストに、手順 2 で作成した `PoseGroup` をドラッグ＆ドロップで追加します。
+3. **libraryName を設定**
+   - `libraryName` フィールドに任意の名前を設定します。  
+   - この値が小文字化されて、AssetBundle のファイル名に使用されます（例: `MyPoses` → `myposes.bundle`）。
 
-The action which rebuilds the listing also publishes a landing page. The source for this page is in `Website/index.html`. The automation system uses [Scriban](https://github.com/scriban/scriban) to fill in the objects like `{{ this }}` with information from the latest release's manifest, so it will stay up-to-date with the name, id and description that you provide there. You are welcome to modify this page however you want - just use the existing `{{ template.objects }}` to fill in that info wherever you like. The entire contents of your "Website" folder are published to your GitHub Page each time.
+### 3-2. PoseLibrary から AssetBundle をビルド
 
-## 💻 Technical Stuff
-
-You are welcome to make your own changes to the automation process to make it fit your needs, and you can create Pull Requests if you have some changes you think we should adopt. Here's some more info on the included automation:
-
-### Build Release Action
-[release.yml](/.github/workflows/release.yml)
-
-This is a composite action combining a variety of existing GitHub Actions and some shell commands to create both a .zip of your Package and a .unitypackage. It creates a release which is named for the `version` in the `package.json` file found in your target Package, and publishes the zip, the unitypackage and the package.json file to this release.
-
-### Build Repo Listing
-[build-listing.yml](.github/workflows/build-listing.yml)
-
-This is a composite action which builds a vpm-compatible [Repo Listing](https://vcc.docs.vrchat.com/vpm/repos) based on the releases you've created. In order to find all your releases and combine them into a listing, it checks out [another repository](https://github.com/vrchat-community/package-list-action) which has a [Nuke](https://nuke.build/) project which includes the VPM core lib to have access to its types and methods. This project will be expanded to include more functionality in the future - for now, the action just calls its `BuildRepoListing` target.
+1. **ウィンドウを開く**
+   - メニューから `VSnap/Build PoseLibrary` を選択します。
+2. **PoseLibrary を指定**
+   - `PoseLibrary` フィールドに、ビルド対象の `PoseLibrary` アセットを指定します。
+3. **Output Path を設定**
+   - `Output Path` に出力先フォルダを指定します。  
+   - `Browse` ボタンからフォルダを選択することもできます。
+4. **ビルド実行**
+   - `Build AssetBundles (Android & iOS)` ボタンを押すと、`Android` / `iOS` 各プラットフォーム用の AssetBundle が出力されます。
+   - 出力先は `Output Path/{libraryNameLower}/{Platform}/` となり、その中に `{libraryNameLower}.bundle` が生成されます。
+5. **出力の確認**
+   - ビルド完了後、`Output Path` がエクスプローラで開かれます。

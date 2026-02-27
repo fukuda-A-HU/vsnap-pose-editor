@@ -14,20 +14,13 @@ namespace VSnap.Editor
         private List<VSnap.Shared.Domain.Pose> foundPoses = new List<VSnap.Shared.Domain.Pose>();
         private bool hasSearched = false;
 
-        [MenuItem("VSnap/Pose Group Editor")]
-        public static void ShowWindow()
-        {
-            var window = GetWindow<PoseGroupEditorWindow>("Pose Group Editor");
-            window.minSize = new Vector2(450, 400);
-        }
-
         private void OnGUI()
         {
             EditorGUILayout.Space(10);
-            EditorGUILayout.LabelField("Pose Group Editor", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Register Pose Group", EditorStyles.boldLabel);
             EditorGUILayout.Space(10);
 
-            // フォルダ選択
+            // Folder selection
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Target Folder:", GUILayout.Width(100));
             targetFolder = (DefaultAsset)EditorGUILayout.ObjectField(
@@ -39,7 +32,7 @@ namespace VSnap.Editor
 
             EditorGUILayout.Space(5);
 
-            // PoseGroup選択
+            // PoseGroup selection
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Target PoseGroup:", GUILayout.Width(100));
             targetPoseGroup = (PoseGroup)EditorGUILayout.ObjectField(
@@ -51,7 +44,7 @@ namespace VSnap.Editor
 
             EditorGUILayout.Space(15);
 
-            // 検索ボタン
+            // Search button
             EditorGUI.BeginDisabledGroup(targetFolder == null);
             if (GUILayout.Button("Search Pose Objects", GUILayout.Height(35)))
             {
@@ -66,7 +59,7 @@ namespace VSnap.Editor
 
             EditorGUILayout.Space(10);
 
-            // 検索結果表示
+            // Search results
             if (hasSearched)
             {
                 EditorGUILayout.LabelField($"Found Poses: {foundPoses.Count}", EditorStyles.boldLabel);
@@ -87,7 +80,7 @@ namespace VSnap.Editor
 
                     EditorGUILayout.Space(10);
 
-                    // 追加ボタン
+                    // Add button
                     string buttonText = targetPoseGroup == null ? "Create New PoseGroup and Add Poses" : "Add to PoseGroup";
                     if (GUILayout.Button(buttonText, GUILayout.Height(40)))
                     {
@@ -122,7 +115,7 @@ namespace VSnap.Editor
                 return;
             }
 
-            // フォルダ内のすべてのアセットのGUIDを取得
+            // Find all Pose assets in folder
             string[] guids = AssetDatabase.FindAssets("t:Pose", new[] { folderPath });
 
             foreach (string guid in guids)
@@ -136,7 +129,7 @@ namespace VSnap.Editor
                 }
             }
 
-            // 名前でソート
+            // Sort by name
             foundPoses = foundPoses.OrderBy(p => p.name).ToList();
 
             Debug.Log($"Found {foundPoses.Count} Pose objects in folder: {folderPath}");
@@ -147,13 +140,13 @@ namespace VSnap.Editor
             if (foundPoses.Count == 0)
                 return;
 
-            // PoseGroupが未設定の場合は新規作成
+            // Create new PoseGroup if not assigned
             if (targetPoseGroup == null)
             {
                 targetPoseGroup = CreateNewPoseGroup();
                 if (targetPoseGroup == null)
                 {
-                    // ユーザーがキャンセルした場合
+                    // User cancelled
                     return;
                 }
             }
@@ -161,7 +154,7 @@ namespace VSnap.Editor
             int addedCount = 0;
             foreach (var pose in foundPoses)
             {
-                // 既に含まれているかチェック
+                // Skip if already in group
                 if (!targetPoseGroup.poses.Contains(pose))
                 {
                     targetPoseGroup.poses.Add(pose);
@@ -183,7 +176,7 @@ namespace VSnap.Editor
 
         private PoseGroup CreateNewPoseGroup()
         {
-            // 保存先パスを指定
+            // Choose save path
             string defaultPath = "Assets/";
             if (targetFolder != null)
             {
@@ -204,15 +197,15 @@ namespace VSnap.Editor
 
             if (string.IsNullOrEmpty(savePath))
             {
-                // ユーザーがキャンセルした
+                // User cancelled
                 return null;
             }
 
-            // 新しいPoseGroupを作成
+            // Create new PoseGroup
             PoseGroup newPoseGroup = ScriptableObject.CreateInstance<PoseGroup>();
             newPoseGroup.poses = new List<VSnap.Shared.Domain.Pose>();
 
-            // アセットとして保存
+            // Save as asset
             AssetDatabase.CreateAsset(newPoseGroup, savePath);
             AssetDatabase.SaveAssets();
 
