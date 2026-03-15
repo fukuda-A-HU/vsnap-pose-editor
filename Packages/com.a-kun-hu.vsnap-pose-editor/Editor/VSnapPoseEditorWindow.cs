@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Networking;
 using PoseData = VSnap.Shared.Domain.Pose;
 using VSnap.Shared.Domain;
 
@@ -41,8 +43,20 @@ namespace VSnap.Editor
         private bool _groupHasSearched;
 
         // --- Build PoseLibrary ---
+        private const string BuildOutputSubdir = "VSnapAssetBundleBuild";
+        private static string BuildOutputPath => Path.Combine(Application.temporaryCachePath, BuildOutputSubdir);
         private PoseLibrary _buildPoseLibrary;
-        private string _buildOutputPath = "AssetBundles";
+        private int _buildPlatformIndex; // 0 = Android, 1 = iOS
+
+        // --- Upload (vsnap-flick) ---
+        private const string VsnapFlickConfigUrl = "https://flick.vsnap.jp/config.json";
+        private const string VsnapFlickUploadPassPageUrl = "https://flick.vsnap.jp/upload-pass.html";
+        private static readonly string EditorPrefsUploadPass = "VSnap.PoseEditor.Upload.Pass";
+        private string _uploadPass = "";
+        private string _lastShortUrl;
+        private Texture2D _lastQrTexture;
+        private bool _uploadInProgress;
+        private static readonly string[] PlatformOptions = { "Android", "iOS" };
 
         [MenuItem("VSnap/Pose Editor")]
         public static void Open()
@@ -51,6 +65,13 @@ namespace VSnap.Editor
             window.minSize = new Vector2(420, 380);
             window.Show();
         }
+
+        private void OnEnable()
+        {
+            _uploadPass = EditorPrefs.GetString(EditorPrefsUploadPass, "");
+        }
+
+        private BuildTarget BuildTargetFromIndex => _buildPlatformIndex == 0 ? BuildTarget.Android : BuildTarget.iOS;
 
         private void OnGUI()
         {
@@ -422,28 +443,32 @@ namespace VSnap.Editor
             GUILayout.Label("Build AssetBundle from PoseLibrary", EditorStyles.boldLabel);
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(
-                "Builds Android and iOS AssetBundles from a PoseLibrary asset. Output filename is the lowercased libraryName with .bundle extension.",
+                "Builds an AssetBundle from a PoseLibrary asset. Output is the lowercased libraryName with .bundle extension, under temporary cache.",
                 MessageType.Info
             );
             EditorGUILayout.Space(4);
 
             _buildPoseLibrary = (PoseLibrary)EditorGUILayout.ObjectField("PoseLibrary", _buildPoseLibrary, typeof(PoseLibrary), false);
+            _buildPlatformIndex = EditorGUILayout.Popup("Platform", _buildPlatformIndex, PlatformOptions);
             EditorGUILayout.Space(4);
-            EditorGUILayout.BeginHorizontal();
-            _buildOutputPath = EditorGUILayout.TextField("Output Path", _buildOutputPath);
-            if (GUILayout.Button("Browse", GUILayout.Width(80)))
-            {
-                string selectedPath = EditorUtility.SaveFolderPanel("Select Output Folder", _buildOutputPath, "");
-                if (!string.IsNullOrEmpty(selectedPath)) _buildOutputPath = selectedPath;
-            }
-            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.HelpBox($"Output: {BuildOutputPath}", MessageType.None);
             EditorGUILayout.Space(10);
 
+            DrawUploadPassRow();
+            EditorGUILayout.Space(8);
+
             GUI.enabled = _buildPoseLibrary != null;
-            if (GUILayout.Button("Build AssetBundles (Android & iOS)", GUILayout.Height(36)))
-                BuildAssetBundles();
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Build", GUILayout.Height(36)))
+                BuildAssetBundles(uploadAfterBuild: false);
+            if (GUILayout.Button("Build & Upload", GUILayout.Height(36)))
+                BuildAssetBundles(uploadAfterBuild: true);
+            EditorGUILayout.EndHorizontal();
             GUI.enabled = true;
-            EditorGUILayout.Space(6);
+            EditorGUILayout.Space(12);
+
+            DrawUploadResultSection();
+            EditorGUILayout.Space(8);
 
             if (_buildPoseLibrary != null)
                 EditorGUILayout.HelpBox($"PoseLibrary: {_buildPoseLibrary.name}\nPose Groups: {_buildPoseLibrary.poseGroups.Count}", MessageType.Info);
@@ -451,10 +476,47 @@ namespace VSnap.Editor
                 EditorGUILayout.HelpBox("Please select a PoseLibrary to build.", MessageType.Warning);
         }
 
-        private void BuildAssetBundles()
+        private void DrawUploadPassRow()
+        {
+            GUILayout.Label("Upload to vsnap-flick", EditorStyles.boldLabel);
+            EditorGUILayout.Space(4);
+            EditorGUI.BeginChangeCheck();
+            _uploadPass = EditorGUILayout.PasswordField("Upload Pass", _uploadPass);
+            if (EditorGUI.EndChangeCheck())
+                EditorPrefs.SetString(EditorPrefsUploadPass, _uploadPass ?? "");
+            EditorGUILayout.Space(4);
+            if (EditorGUILayout.LinkButton("Upload Pass を取得（vsnap-flick）"))
+                Application.OpenURL(VsnapFlickUploadPassPageUrl);
+        }
+
+        private void DrawUploadResultSection()
+        {
+            if (string.IsNullOrEmpty(_lastShortUrl))
+                return;
+            GUILayout.Label("Download", EditorStyles.boldLabel);
+            EditorGUILayout.SelectableLabel(_lastShortUrl, EditorStyles.textField, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+            if (_lastQrTexture != null)
+            {
+                float size = Mathf.Min(256, _lastQrTexture.width, _lastQrTexture.height);
+                Rect r = GUILayoutUtility.GetRect(size, size);
+                GUI.DrawTexture(r, _lastQrTexture, ScaleMode.ScaleToFit);
+            }
+        }
+
+        private string GetBuiltBundlePath()
+        {
+            if (_buildPoseLibrary == null) return null;
+            string libraryNameLower = _buildPoseLibrary.libraryName.ToLower();
+            string bundleName = $"{libraryNameLower}.bundle";
+            return Path.Combine(BuildOutputPath, libraryNameLower, BuildTargetFromIndex.ToString(), bundleName);
+        }
+
+        private void BuildAssetBundles(bool uploadAfterBuild)
         {
             if (_buildPoseLibrary == null) { EditorUtility.DisplayDialog("Error", "Please select a PoseLibrary.", "OK"); return; }
-            if (!Directory.Exists(_buildOutputPath)) Directory.CreateDirectory(_buildOutputPath);
+            var target = BuildTargetFromIndex;
+            string buildOutputPath = BuildOutputPath;
+            if (!Directory.Exists(buildOutputPath)) Directory.CreateDirectory(buildOutputPath);
 
             string assetPath = AssetDatabase.GetAssetPath(_buildPoseLibrary);
             if (string.IsNullOrEmpty(assetPath)) { EditorUtility.DisplayDialog("Error", "Failed to get asset path.", "OK"); return; }
@@ -480,28 +542,19 @@ namespace VSnap.Editor
                 if (depImporter != null) depImporter.assetBundleName = bundleName;
             }
 
-            BuildTarget[] buildTargets = { BuildTarget.Android, BuildTarget.iOS };
-            bool allSuccess = true;
-            var resultMessage = new System.Text.StringBuilder();
-            resultMessage.AppendLine("AssetBundle build completed!\n");
-
-            foreach (BuildTarget target in buildTargets)
+            string platformPath = Path.Combine(buildOutputPath, libraryNameLower, target.ToString());
+            if (!Directory.Exists(platformPath)) Directory.CreateDirectory(platformPath);
+            bool success = false;
+            try
             {
-                string platformPath = Path.Combine(_buildOutputPath, libraryNameLower, target.ToString());
-                if (!Directory.Exists(platformPath)) Directory.CreateDirectory(platformPath);
-                try
-                {
-                    EditorUtility.DisplayProgressBar("Building AssetBundles", $"Building for {target}...", 0.5f);
-                    BuildPipeline.BuildAssetBundles(platformPath, BuildAssetBundleOptions.None, target);
-                    resultMessage.AppendLine($"✓ {target}: {Path.Combine(platformPath, bundleName)}");
-                    Debug.Log($"AssetBundle built for {target}: {platformPath}");
-                }
-                catch (System.Exception e)
-                {
-                    allSuccess = false;
-                    resultMessage.AppendLine($"✗ {target}: Failed - {e.Message}");
-                    Debug.LogError($"AssetBundle build failed for {target}: {e}");
-                }
+                EditorUtility.DisplayProgressBar("Building AssetBundles", $"Building for {target}...", 0.5f);
+                BuildPipeline.BuildAssetBundles(platformPath, BuildAssetBundleOptions.None, target);
+                success = true;
+                Debug.Log($"AssetBundle built for {target}: {platformPath}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"AssetBundle build failed for {target}: {e}");
             }
 
             EditorUtility.ClearProgressBar();
@@ -518,9 +571,259 @@ namespace VSnap.Editor
             }
             AssetDatabase.Refresh();
 
-            EditorUtility.DisplayDialog(allSuccess ? "Success" : "Build Completed with Errors", resultMessage.ToString(), "OK");
-            EditorUtility.RevealInFinder(_buildOutputPath);
+            EditorUtility.DisplayDialog(success ? "Success" : "Error", success ? $"AssetBundle built: {Path.Combine(platformPath, bundleName)}" : "Build failed. See Console.", "OK");
+            if (success)
+            {
+                EditorUtility.RevealInFinder(platformPath);
+                if (uploadAfterBuild)
+                    UploadBundle();
+            }
         }
+
+        private void UploadBundle()
+        {
+            string bundlePath = GetBuiltBundlePath();
+            if (string.IsNullOrEmpty(bundlePath) || !File.Exists(bundlePath))
+            {
+                EditorUtility.DisplayDialog("Error", "No .bundle file found. Build first.", "OK");
+                return;
+            }
+            _uploadInProgress = true;
+            EditorApplication.update += UploadBundleTick;
+        }
+
+        private static string ResolveVsnapFlickApiBase()
+        {
+            var req = new UnityWebRequest(VsnapFlickConfigUrl) { downloadHandler = new DownloadHandlerBuffer() };
+            req.SendWebRequest();
+            while (!req.isDone)
+            {
+                if (req.result == UnityWebRequest.Result.ConnectionError || req.result == UnityWebRequest.Result.ProtocolError)
+                    break;
+                System.Threading.Thread.Sleep(50);
+            }
+            string apiBase = null;
+            if (req.result == UnityWebRequest.Result.Success && req.downloadHandler?.data != null)
+            {
+                try
+                {
+                    var config = JsonUtility.FromJson<VsnapFlickConfig>(req.downloadHandler.text);
+                    if (!string.IsNullOrEmpty(config?.apiBaseUrl))
+                        apiBase = config.apiBaseUrl.TrimEnd('/');
+                }
+                catch { }
+            }
+            req.Dispose();
+            return apiBase ?? "https://frnf9epuh1.execute-api.ap-northeast-1.amazonaws.com/Prod";
+        }
+
+        [System.Serializable]
+        private class VsnapFlickConfig { public string apiBaseUrl; }
+
+        private void UploadBundleTick()
+        {
+            EditorApplication.update -= UploadBundleTick;
+            _uploadInProgress = false;
+            string bundlePath = GetBuiltBundlePath();
+            string apiBase = ResolveVsnapFlickApiBase();
+            string filename = Path.GetFileName(bundlePath);
+            var initReq = new UnityWebRequest($"{apiBase}/upload/init", "POST");
+            initReq.SetRequestHeader("Content-Type", "application/json");
+            initReq.SetRequestHeader("X-Upload-Pass", _uploadPass ?? "");
+            var body = $"{{\"filename\":\"{EscapeJson(filename)}\",\"upload_pass\":\"{EscapeJson(_uploadPass ?? "")}\"}}";
+            initReq.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(body));
+            initReq.downloadHandler = new DownloadHandlerBuffer();
+            initReq.SendWebRequest();
+            while (!initReq.isDone)
+            {
+                if (initReq.result == UnityWebRequest.Result.ConnectionError || initReq.result == UnityWebRequest.Result.ProtocolError)
+                    break;
+                System.Threading.Thread.Sleep(50);
+            }
+            if (initReq.result != UnityWebRequest.Result.Success)
+            {
+                long code = initReq.responseCode;
+                string err = initReq.error;
+                if (initReq.downloadHandler != null && initReq.downloadHandler.data != null)
+                {
+                    try
+                    {
+                        var json = JsonUtility.FromJson<UploadErrorResponse>(initReq.downloadHandler.text);
+                        if (!string.IsNullOrEmpty(json.error)) err = json.error;
+                    }
+                    catch { }
+                }
+                string statusHint = code > 0 ? $" (HTTP {code})" : "";
+                if (code == 401)
+                    err = (string.IsNullOrEmpty(err) ? "アップロード用パスワードが正しくありません。Discord でログインするか、Upload Pass を取得してください。" : err) + statusHint;
+                else if (code == 403)
+                    err = (string.IsNullOrEmpty(err) ? "Access Denied (403)" : err) + statusHint;
+                else if (code > 0)
+                    err = err + statusHint;
+                EditorUtility.DisplayDialog("Upload init failed", err, "OK");
+                initReq.Dispose();
+                return;
+            }
+            string initJson = initReq.downloadHandler.text;
+            initReq.Dispose();
+
+            string presignedUrl = null;
+            string shortUrl = null;
+            string qrCodeBase64 = null;
+            PresignedField[] fieldsOrder = null;
+            string fileFieldName = "file";
+            try
+            {
+                var init = JsonUtility.FromJson<UploadInitResponse>(initJson);
+                if (init.presigned_post != null)
+                {
+                    presignedUrl = init.presigned_post.url;
+                    shortUrl = init.short_url;
+                    qrCodeBase64 = init.qr_code_base64;
+                    fileFieldName = string.IsNullOrEmpty(init.presigned_post.file_field_name) ? "file" : init.presigned_post.file_field_name;
+                    fieldsOrder = init.presigned_post.fields_order;
+                    if ((fieldsOrder == null || fieldsOrder.Length == 0) && !string.IsNullOrEmpty(presignedUrl))
+                        fieldsOrder = ParseFieldsFromInitJson(initJson);
+                }
+            }
+            catch (System.Exception e)
+            {
+                EditorUtility.DisplayDialog("Upload init parse error", e.Message, "OK");
+                return;
+            }
+            if (string.IsNullOrEmpty(presignedUrl) || fieldsOrder == null || fieldsOrder.Length == 0)
+            {
+                EditorUtility.DisplayDialog("Upload init error", "Invalid response: missing presigned_post or fields.", "OK");
+                return;
+            }
+
+            byte[] fileBytes = File.ReadAllBytes(bundlePath);
+            string boundary = "----UnityFormBoundary" + System.Guid.NewGuid().ToString("N");
+            var formStream = new MemoryStream();
+            var writer = new StreamWriter(formStream, System.Text.Encoding.UTF8, 1024, true) { NewLine = "\r\n" };
+            foreach (var f in fieldsOrder)
+            {
+                if (string.IsNullOrEmpty(f.k)) continue;
+                writer.Write($"--{boundary}\r\nContent-Disposition: form-data; name=\"{f.k}\"\r\n\r\n{f.v}\r\n");
+                writer.Flush();
+            }
+            writer.Write($"--{boundary}\r\nContent-Disposition: form-data; name=\"{fileFieldName}\"; filename=\"{Path.GetFileName(bundlePath)}\"\r\nContent-Type: application/octet-stream\r\n\r\n");
+            writer.Flush();
+            formStream.Write(fileBytes, 0, fileBytes.Length);
+            writer.Write($"\r\n--{boundary}--\r\n");
+            writer.Flush();
+            formStream.Position = 0;
+
+            var uploadReq = new UnityWebRequest(presignedUrl, "POST");
+            uploadReq.SetRequestHeader("Content-Type", $"multipart/form-data; boundary={boundary}");
+            uploadReq.uploadHandler = new UploadHandlerRaw(formStream.ToArray());
+            uploadReq.downloadHandler = new DownloadHandlerBuffer();
+            uploadReq.SendWebRequest();
+            while (!uploadReq.isDone)
+            {
+                if (uploadReq.result == UnityWebRequest.Result.ConnectionError || uploadReq.result == UnityWebRequest.Result.ProtocolError)
+                    break;
+                System.Threading.Thread.Sleep(50);
+            }
+            var uploadSuccess = uploadReq.result == UnityWebRequest.Result.Success;
+            var uploadError = uploadReq.error;
+            long uploadResponseCode = uploadReq.responseCode;
+            uploadReq.Dispose();
+            if (!uploadSuccess)
+            {
+                string msg = uploadError ?? "Unknown error";
+                if (uploadResponseCode > 0)
+                    msg = msg + " (HTTP " + uploadResponseCode + ")";
+                if (uploadResponseCode == 403)
+                    msg = msg + " S3 の presigned POST が拒否されました。フォームの構成を確認してください。";
+                EditorUtility.DisplayDialog("Upload to S3 failed", msg, "OK");
+                return;
+            }
+
+            _lastShortUrl = shortUrl;
+            if (!string.IsNullOrEmpty(qrCodeBase64))
+            {
+                string b64 = qrCodeBase64;
+                if (b64.Contains(",")) b64 = b64.Substring(b64.IndexOf(',') + 1);
+                try
+                {
+                    byte[] imgBytes = System.Convert.FromBase64String(b64.Trim());
+                    if (_lastQrTexture != null) DestroyImmediate(_lastQrTexture);
+                    _lastQrTexture = new Texture2D(2, 2);
+                    _lastQrTexture.LoadImage(imgBytes);
+                }
+                catch (System.Exception e) { Debug.LogWarning("QR decode: " + e.Message); }
+            }
+            Repaint();
+            EditorUtility.DisplayDialog("Upload complete", $"Download URL: {shortUrl}", "OK");
+        }
+
+        private static string EscapeJson(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
+        }
+
+        private static string UnescapeJsonString(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s.Replace("\\\\", "\\").Replace("\\\"", "\"");
+        }
+
+        private static PresignedField[] ParseFieldsFromInitJson(string initJson)
+        {
+            int idx = initJson.IndexOf("\"fields\"");
+            if (idx < 0) return null;
+            idx = initJson.IndexOf('{', idx);
+            if (idx < 0) return null;
+            int depth = 1;
+            int i = idx + 1;
+            while (i < initJson.Length && depth > 0)
+            {
+                char c = initJson[i++];
+                if (c == '"') { while (i < initJson.Length && (initJson[i] != '"' || initJson[i - 1] == '\\')) i++; i++; continue; }
+                if (c == '{') depth++;
+                else if (c == '}') depth--;
+            }
+            string fieldsStr = initJson.Substring(idx, i - idx);
+            string[] fieldOrder = { "key", "x-amz-algorithm", "x-amz-credential", "x-amz-date", "policy", "x-amz-signature", "AWSAccessKeyId", "x-amz-security-token", "signature" };
+            var list = new List<PresignedField>();
+            foreach (string key in fieldOrder)
+            {
+                var m = Regex.Match(fieldsStr, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+                if (m.Success)
+                    list.Add(new PresignedField { k = key, v = UnescapeJsonString(m.Groups[1].Value) });
+            }
+            foreach (Match m in Regex.Matches(fieldsStr, "\"([^\"]+)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""))
+            {
+                string k = m.Groups[1].Value;
+                if (list.All(f => f.k != k))
+                    list.Add(new PresignedField { k = k, v = UnescapeJsonString(m.Groups[2].Value) });
+            }
+            return list.Count > 0 ? list.ToArray() : null;
+        }
+
+        [System.Serializable]
+        private class UploadErrorResponse { public string error; }
+
+        [System.Serializable]
+        private class UploadInitResponse
+        {
+            public PresignedPost presigned_post;
+            public string short_url;
+            public string qr_code_base64;
+        }
+
+        [System.Serializable]
+        private class PresignedPost
+        {
+            public string url;
+            public string file_field_name;
+            public PresignedField[] fields_order;
+        }
+
+        [System.Serializable]
+        private class PresignedField { public string k; public string v; }
 
         #endregion
     }
